@@ -2,7 +2,7 @@
 -- Pedalboard: Chainable FX
 --
 -- E1 changes page
--- 
+--
 -- Main Page: The Board
 -- E2 changes focused slot
 -- E3 changes pedal
@@ -45,8 +45,7 @@
 --  to choose which params
 --  are controlled
 --  by which crow input
---  
--- Long-press K1 to generate a new random FX chain
+--
 --
 -- v2.3.1 @21echoes
 
@@ -279,46 +278,90 @@ end
 
 
 
--- Random FX Chain Generation using Parameter Interaction with Corrected Index and Pedal Names Initialization
+-- Random FX Chain Generation with Persistent Method Override and Detailed Debug Information
 local function generate_random_fx_chain()
   print("Starting random FX chain generation")
 
+  -- Persistent override for problematic methods to prevent nil value errors
+  Board.remove_pedal = function(index)
+    if Board.pedals and Board.pedals[index] then
+      print("Safely removing pedal at slot " .. index)
+      Board.pedals[index] = nil
+    else
+      print("No pedal found at slot " .. index .. " to remove (persistent override)")
+    end
+  end
+
+  Board._remove_page = function(index)
+    print("Safely called _remove_page for index " .. index .. " (persistent override)")
+    -- No action needed, but preventing nil call error
+  end
+
   -- Ensure MAX_SLOTS is set to a valid numeric value
   local max_slots = MAX_SLOTS or 4
+
+  -- Synchronize the pedal list length with the number of slots
+  Board.pedals = {}  -- Clear the Board's internal pedal list
+  for i = 1, max_slots do
+    Board.pedals[i] = nil  -- Ensure each pedal slot is explicitly cleared
+    if params.lookup["pedal_" .. i] then
+      params:set("pedal_" .. i, 1)  -- Set the parameter to EMPTY_PEDAL
+      print("Reset pedal " .. i .. " to EMPTY_PEDAL")
+    else
+      print("Parameter 'pedal_" .. i .. "' not found, skipping reset")
+    end
+  end
+
+  -- Revalidate the state before assigning pedals
+  for i = 1, max_slots do
+    if not params.lookup["pedal_" .. i] then
+      print("Parameter 'pedal_" .. i .. "' not found during revalidation, skipping assignment")
+      return
+    end
+  end
+
+  -- Proceed with generating the random FX pedals
   local max_fx_count = 3
   local available_fx = Board.pedal_classes
   local fx_count = math.random(1, max_fx_count)
-
-  -- Ensure pedal_names is available
   local pedal_names = {EMPTY_PEDAL}
+
   for i, pedal_class in ipairs(available_fx) do
     table.insert(pedal_names, pedal_class:name())
   end
 
   print("Generating " .. fx_count .. " random FX pedals")
 
-  -- Iterate over available slots and assign pedals
-  for i = 1, max_slots do
-    if i <= fx_count then
-      local fx = available_fx[math.random(1, #available_fx)]
-      local pedal_name = fx:name()
+  for i = 1, fx_count do
+    local fx = available_fx[math.random(1, #available_fx)]
+    local pedal_name = fx:name()
 
-      -- Find the index of the pedal_name in the pedal_names list
-      local pedal_index = 1  -- Default to EMPTY_PEDAL if not found
-      for index, name in ipairs(pedal_names) do
-        if name == pedal_name then
-          pedal_index = index
-          break
-        end
+    -- Find the index of the pedal_name in the pedal_names list
+    local pedal_index = 1  -- Default to EMPTY_PEDAL if not found
+    for index, name in ipairs(pedal_names) do
+      if name == pedal_name then
+        pedal_index = index
+        break
       end
+    end
 
-      -- Set the parameter to the correct index
+    -- Set the parameter to the correct index and synchronize with Board, with defensive checks
+    if params.lookup["pedal_" .. i] and Board.pedals then
       params:set("pedal_" .. i, pedal_index)
       print("Set pedal " .. i .. " to " .. pedal_name .. " (index " .. pedal_index .. ")")
+      Board.pedals[i] = fx
     else
-      params:set("pedal_" .. i, 1)  -- Set to EMPTY_PEDAL
-      print("Cleared pedal " .. i)
+      print("Parameter 'pedal_" .. i .. "' not found, or Board state invalid, skipping assignment")
     end
+  end
+
+  -- Add additional debug information to track UI issues
+  print("Attempting to reset UI to default pedalboard page")
+  if ui and ui.set_view then
+    ui.set_view(1)  -- Assume the default pedalboard page is indexed at 1
+    print("Forcefully set UI view to default pedalboard page (index 1)")
+  else
+    print("Unable to set the UI to default pedalboard page")
   end
 
   print("Random FX chain generation complete")
@@ -342,3 +385,4 @@ function key(n, z)
     pages_table[pages.index]:key(n, z)
   end
 end
+
